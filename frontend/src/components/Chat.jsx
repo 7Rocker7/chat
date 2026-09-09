@@ -27,6 +27,7 @@ import GifModal from './GifModal';
 import VideoRecordModal from './VideoRecordModal';
 import MessageItem from './MessageItem';
 import CreateGroupModal from './CreateGroupModal';
+import ForwardModal from './ForwardModal';
 
 export default function Chat({ token, user, onLogout }) {
   const [messages, setMessages] = useState([]);
@@ -54,6 +55,11 @@ export default function Chat({ token, user, onLogout }) {
   const [isGifModalOpen, setIsGifModalOpen] = useState(false);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [isForwardOpen, setIsForwardOpen] = useState(false);
+
+  // Reply & Forward state
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [messageToForward, setMessageToForward] = useState(null);
 
   // File upload state
   const [isUploading, setIsUploading] = useState(false);
@@ -175,6 +181,38 @@ export default function Chat({ token, user, onLogout }) {
       }
     });
 
+    // Message Deleted for Everyone event
+    newSocket.on('message_deleted_everyone', (data) => {
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === data.message_id
+            ? { ...msg, is_deleted_everyone: 1, text: 'This message was deleted' }
+            : msg
+        )
+      );
+    });
+
+    // Message Deleted for Me event
+    newSocket.on('message_deleted_me', (data) => {
+      setMessages(prev =>
+        prev.map(msg => {
+          if (msg.id === data.message_id) {
+            let deletedUsers = [];
+            try {
+              deletedUsers = typeof msg.deleted_by_users === 'string'
+                ? JSON.parse(msg.deleted_by_users || '[]')
+                : msg.deleted_by_users || [];
+            } catch (e) {
+              deletedUsers = [];
+            }
+            if (!deletedUsers.includes(user.id)) deletedUsers.push(user.id);
+            return { ...msg, deleted_by_users: JSON.stringify(deletedUsers) };
+          }
+          return msg;
+        })
+      );
+    });
+
     // Real-time group creation broadcast
     newSocket.on('group_created', (newGroup) => {
       setGroups(prev => {
@@ -193,7 +231,7 @@ export default function Chat({ token, user, onLogout }) {
     setSocket(newSocket);
 
     return () => newSocket.close();
-  }, [token, onLogout]);
+  }, [token, onLogout, user?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -206,11 +244,13 @@ export default function Chat({ token, user, onLogout }) {
   const handleSelectGroup = (group) => {
     setChatMode('group');
     setActiveGroup(group);
+    setReplyingTo(null);
   };
 
   const handleSelectDMUser = (targetUser) => {
     setChatMode('dm');
     setActiveDMUser(targetUser);
+    setReplyingTo(null);
   };
 
   const handleGroupCreated = (newGroup) => {
@@ -220,6 +260,38 @@ export default function Chat({ token, user, onLogout }) {
     });
     setChatMode('group');
     setActiveGroup(newGroup);
+    setReplyingTo(null);
+  };
+
+  // Reply, Forward, and Delete Handlers
+  const handleReplyClick = (msg) => {
+    setReplyingTo(msg);
+  };
+
+  const handleForwardClick = (msg) => {
+    setMessageToForward(msg);
+    setIsForwardOpen(true);
+  };
+
+  const handleForwardSubmit = (targetType, targetId) => {
+    if (!socket || !messageToForward) return;
+    socket.emit('forward_message', {
+      message: messageToForward,
+      target_type: targetType,
+      target_id: targetId
+    });
+    setMessageToForward(null);
+  };
+
+  const handleDeleteMessage = (msg, deleteType) => {
+    if (!socket) return;
+    socket.emit('delete_message', {
+      message_id: msg.id,
+      is_dm: chatMode === 'dm',
+      delete_type: deleteType,
+      group_id: activeGroup.id,
+      receiver_id: activeDMUser?.id
+    });
   };
 
   // Upload file helper
@@ -255,17 +327,30 @@ export default function Chat({ token, user, onLogout }) {
   // Send message router (Group vs DM)
   const dispatchMessagePayload = (payload) => {
     if (!socket) return;
+
+    const replyData = replyingTo
+      ? {
+          reply_to_id: replyingTo.id,
+          reply_to_sender: replyingTo.user_name,
+          reply_to_text: replyingTo.text || replyingTo.file_name || 'Attachment'
+        }
+      : {};
+
+    const fullPayload = { ...payload, ...replyData };
+
     if (chatMode === 'group') {
       socket.emit('send_message', {
-        ...payload,
+        ...fullPayload,
         group_id: activeGroup.id
       });
     } else if (chatMode === 'dm' && activeDMUser) {
       socket.emit('send_dm', {
-        ...payload,
+        ...fullPayload,
         receiver_id: activeDMUser.id
       });
     }
+
+    setReplyingTo(null);
   };
 
   // Text message handler
@@ -595,6 +680,9 @@ export default function Chat({ token, user, onLogout }) {
                 key={msg.id || index}
                 message={msg}
                 currentUser={user}
+                onReply={handleReplyClick}
+                onForward={handleForwardClick}
+                onDelete={handleDeleteMessage}
               />
             ))
           )}
@@ -608,6 +696,21 @@ export default function Chat({ token, user, onLogout }) {
 
           <div ref={messagesEndRef} />
         </div>
+
+        {/* Reply Preview Banner */}
+        {replyingTo && (
+          <div className="reply-preview-bar animate-fade-in">
+            <div className="reply-preview-content">
+              <span className="reply-preview-title">Replying to @{replyingTo.user_name}:</span>
+              <span className="reply-preview-text">
+                {replyingTo.text || replyingTo.file_name || 'Attachment'}
+              </span>
+            </div>
+            <button className="reply-close-btn" onClick={() => setReplyingTo(null)}>
+              <X size={16} />
+            </button>
+          </div>
+        )}
 
         {/* Chat Input Bar */}
         <div className="chat-input-container">
@@ -734,6 +837,16 @@ export default function Chat({ token, user, onLogout }) {
         onClose={() => setIsCreateGroupOpen(false)}
         token={token}
         onGroupCreated={handleGroupCreated}
+      />
+
+      {/* Forward Modal */}
+      <ForwardModal
+        isOpen={isForwardOpen}
+        onClose={() => setIsForwardOpen(false)}
+        messageToForward={messageToForward}
+        groups={groups}
+        users={usersList}
+        onForward={handleForwardSubmit}
       />
 
       {/* GIF Picker Modal */}

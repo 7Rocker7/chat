@@ -43,6 +43,11 @@ const db = new sqlite3.Database(dbPath, (err) => {
             file_name TEXT,
             file_size TEXT,
             file_type TEXT,
+            reply_to_id INTEGER,
+            reply_to_sender TEXT,
+            reply_to_text TEXT,
+            is_deleted_everyone INTEGER DEFAULT 0,
+            deleted_by_users TEXT DEFAULT '[]',
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (user_id) REFERENCES users (id),
             FOREIGN KEY (group_id) REFERENCES groups (id)
@@ -53,7 +58,12 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 "ALTER TABLE messages ADD COLUMN file_url TEXT",
                 "ALTER TABLE messages ADD COLUMN file_name TEXT",
                 "ALTER TABLE messages ADD COLUMN file_size TEXT",
-                "ALTER TABLE messages ADD COLUMN file_type TEXT"
+                "ALTER TABLE messages ADD COLUMN file_type TEXT",
+                "ALTER TABLE messages ADD COLUMN reply_to_id INTEGER",
+                "ALTER TABLE messages ADD COLUMN reply_to_sender TEXT",
+                "ALTER TABLE messages ADD COLUMN reply_to_text TEXT",
+                "ALTER TABLE messages ADD COLUMN is_deleted_everyone INTEGER DEFAULT 0",
+                "ALTER TABLE messages ADD COLUMN deleted_by_users TEXT DEFAULT '[]'"
             ];
             newColumns.forEach(query => {
                 db.run(query, () => {});
@@ -71,10 +81,26 @@ const db = new sqlite3.Database(dbPath, (err) => {
             file_name TEXT,
             file_size TEXT,
             file_type TEXT,
+            reply_to_id INTEGER,
+            reply_to_sender TEXT,
+            reply_to_text TEXT,
+            is_deleted_everyone INTEGER DEFAULT 0,
+            deleted_by_users TEXT DEFAULT '[]',
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (sender_id) REFERENCES users (id),
             FOREIGN KEY (receiver_id) REFERENCES users (id)
-        )`);
+        )`, () => {
+            const dmColumns = [
+                "ALTER TABLE direct_messages ADD COLUMN reply_to_id INTEGER",
+                "ALTER TABLE direct_messages ADD COLUMN reply_to_sender TEXT",
+                "ALTER TABLE direct_messages ADD COLUMN reply_to_text TEXT",
+                "ALTER TABLE direct_messages ADD COLUMN is_deleted_everyone INTEGER DEFAULT 0",
+                "ALTER TABLE direct_messages ADD COLUMN deleted_by_users TEXT DEFAULT '[]'"
+            ];
+            dmColumns.forEach(query => {
+                db.run(query, () => {});
+            });
+        });
     }
 });
 

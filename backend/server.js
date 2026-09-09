@@ -239,7 +239,9 @@ app.post('/api/groups', authenticateToken, (req, res) => {
 app.get('/api/messages', (req, res) => {
     const groupId = req.query.groupId || 1;
     db.all(`
-        SELECT m.id, m.group_id, m.text, m.type, m.file_url, m.file_name, m.file_size, m.file_type, m.timestamp, u.name as user_name, u.id as user_id
+        SELECT m.id, m.group_id, m.text, m.type, m.file_url, m.file_name, m.file_size, m.file_type,
+               m.reply_to_id, m.reply_to_sender, m.reply_to_text, m.is_deleted_everyone, m.deleted_by_users,
+               m.timestamp, u.name as user_name, u.id as user_id
         FROM messages m
         JOIN users u ON m.user_id = u.id
         WHERE m.group_id = ?
@@ -265,8 +267,9 @@ app.get('/api/dms', authenticateToken, (req, res) => {
     if (!userId) return res.status(400).json({ error: 'userId is required' });
 
     db.all(`
-        SELECT dm.id, dm.sender_id, dm.receiver_id, dm.text, dm.type, dm.file_url, dm.file_name, dm.file_size, dm.file_type, dm.timestamp,
-               u.name as user_name, u.id as user_id
+        SELECT dm.id, dm.sender_id, dm.receiver_id, dm.text, dm.type, dm.file_url, dm.file_name, dm.file_size, dm.file_type,
+               dm.reply_to_id, dm.reply_to_sender, dm.reply_to_text, dm.is_deleted_everyone, dm.deleted_by_users,
+               dm.timestamp, u.name as user_name, u.id as user_id
         FROM direct_messages dm
         JOIN users u ON dm.sender_id = u.id
         WHERE (dm.sender_id = ? AND dm.receiver_id = ?)
@@ -307,13 +310,16 @@ io.on('connection', (socket) => {
             file_url = null,
             file_name = null,
             file_size = null,
-            file_type = null
+            file_type = null,
+            reply_to_id = null,
+            reply_to_sender = null,
+            reply_to_text = null
         } = data;
 
         db.run(`
-            INSERT INTO messages (user_id, group_id, text, type, file_url, file_name, file_size, file_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `, [socket.user.id, group_id, text, type, file_url, file_name, file_size, file_type], function(err) {
+            INSERT INTO messages (user_id, group_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [socket.user.id, group_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text], function(err) {
             if (err) {
                 console.error('Error saving message', err);
                 return;
@@ -330,6 +336,11 @@ io.on('connection', (socket) => {
                 file_name,
                 file_size,
                 file_type,
+                reply_to_id,
+                reply_to_sender,
+                reply_to_text,
+                is_deleted_everyone: 0,
+                deleted_by_users: '[]',
                 timestamp: new Date().toISOString()
             };
             
@@ -346,15 +357,18 @@ io.on('connection', (socket) => {
             file_url = null,
             file_name = null,
             file_size = null,
-            file_type = null
+            file_type = null,
+            reply_to_id = null,
+            reply_to_sender = null,
+            reply_to_text = null
         } = data;
 
         if (!receiver_id) return;
 
         db.run(`
-            INSERT INTO direct_messages (sender_id, receiver_id, text, type, file_url, file_name, file_size, file_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `, [socket.user.id, receiver_id, text, type, file_url, file_name, file_size, file_type], function(err) {
+            INSERT INTO direct_messages (sender_id, receiver_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [socket.user.id, receiver_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text], function(err) {
             if (err) {
                 console.error('Error saving direct message', err);
                 return;
@@ -372,12 +386,122 @@ io.on('connection', (socket) => {
                 file_name,
                 file_size,
                 file_type,
+                reply_to_id,
+                reply_to_sender,
+                reply_to_text,
+                is_deleted_everyone: 0,
+                deleted_by_users: '[]',
                 timestamp: new Date().toISOString()
             };
 
             // Send to both sender and receiver sockets
             io.to(`user_${socket.user.id}`).to(`user_${receiver_id}`).emit('receive_dm', dmObj);
         });
+    });
+
+    // Forward Message Handler
+    socket.on('forward_message', (data) => {
+        const { message, target_type, target_id } = data;
+        if (!message || !target_type || !target_id) return;
+
+        const forwardText = message.text || (message.file_name ? `Forwarded file: ${message.file_name}` : 'Forwarded message');
+
+        if (target_type === 'group') {
+            db.run(`
+                INSERT INTO messages (user_id, group_id, text, type, file_url, file_name, file_size, file_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `, [socket.user.id, target_id, forwardText, message.type, message.file_url, message.file_name, message.file_size, message.file_type], function(err) {
+                if (err) return;
+                const fwdObj = {
+                    id: this.lastID,
+                    user_id: socket.user.id,
+                    user_name: socket.user.name,
+                    group_id: Number(target_id),
+                    text: forwardText,
+                    type: message.type,
+                    file_url: message.file_url,
+                    file_name: message.file_name,
+                    file_size: message.file_size,
+                    file_type: message.file_type,
+                    is_deleted_everyone: 0,
+                    deleted_by_users: '[]',
+                    timestamp: new Date().toISOString()
+                };
+                io.emit('receive_message', fwdObj);
+            });
+        } else if (target_type === 'dm') {
+            db.run(`
+                INSERT INTO direct_messages (sender_id, receiver_id, text, type, file_url, file_name, file_size, file_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `, [socket.user.id, target_id, forwardText, message.type, message.file_url, message.file_name, message.file_size, message.file_type], function(err) {
+                if (err) return;
+                const fwdDmObj = {
+                    id: this.lastID,
+                    sender_id: socket.user.id,
+                    receiver_id: Number(target_id),
+                    user_id: socket.user.id,
+                    user_name: socket.user.name,
+                    text: forwardText,
+                    type: message.type,
+                    file_url: message.file_url,
+                    file_name: message.file_name,
+                    file_size: message.file_size,
+                    file_type: message.file_type,
+                    is_deleted_everyone: 0,
+                    deleted_by_users: '[]',
+                    timestamp: new Date().toISOString()
+                };
+                io.to(`user_${socket.user.id}`).to(`user_${target_id}`).emit('receive_dm', fwdDmObj);
+            });
+        }
+    });
+
+    // Delete Message Handler (Delete for Everyone vs Delete for Me)
+    socket.on('delete_message', (data) => {
+        const { message_id, is_dm, delete_type, group_id, receiver_id } = data;
+        if (!message_id || !delete_type) return;
+
+        const table = is_dm ? 'direct_messages' : 'messages';
+
+        if (delete_type === 'everyone') {
+            // Check ownership
+            const userCol = is_dm ? 'sender_id' : 'user_id';
+            db.get(`SELECT ${userCol} as owner_id FROM ${table} WHERE id = ?`, [message_id], (err, row) => {
+                if (err || !row || row.owner_id !== socket.user.id) {
+                    return; // Only owner can delete for everyone
+                }
+
+                db.run(`UPDATE ${table} SET is_deleted_everyone = 1, text = 'This message was deleted' WHERE id = ?`, [message_id], (upErr) => {
+                    if (upErr) return;
+                    const eventData = { message_id, is_dm, group_id, receiver_id, sender_id: socket.user.id };
+                    if (is_dm) {
+                        io.to(`user_${socket.user.id}`).to(`user_${receiver_id}`).emit('message_deleted_everyone', eventData);
+                    } else {
+                        io.emit('message_deleted_everyone', eventData);
+                    }
+                });
+            });
+        } else if (delete_type === 'me') {
+            db.get(`SELECT deleted_by_users FROM ${table} WHERE id = ?`, [message_id], (err, row) => {
+                if (err || !row) return;
+
+                let deletedUsers = [];
+                try {
+                    deletedUsers = JSON.parse(row.deleted_by_users || '[]');
+                } catch (e) {
+                    deletedUsers = [];
+                }
+
+                if (!deletedUsers.includes(socket.user.id)) {
+                    deletedUsers.push(socket.user.id);
+                }
+
+                db.run(`UPDATE ${table} SET deleted_by_users = ? WHERE id = ?`, [JSON.stringify(deletedUsers), message_id], (upErr) => {
+                    if (upErr) return;
+                    socket.emit('message_deleted_me', { message_id, is_dm, group_id, receiver_id });
+                });
+            });
+        }
     });
 
     socket.on('disconnect', () => {

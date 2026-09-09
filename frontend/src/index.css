@@ -1255,3 +1255,290 @@ button {
   color: white;
   transform: translateY(-1px);
 }
+
+/* ==========================================================================
+   Message Actions (Reply, Forward, Delete) & WhatsApp/Google Chat Styling
+   ========================================================================== */
+.message {
+  position: relative;
+}
+
+.message-action-toolbar {
+  position: absolute;
+  top: -12px;
+  right: 12px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 2px 6px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: all 0.2s ease-in-out;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 10;
+}
+
+.message:hover .message-action-toolbar {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.action-tool-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.action-tool-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.action-tool-btn.danger-tool:hover {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+/* Quoted Reply Context Box */
+.message-quoted-reply {
+  background: rgba(99, 102, 241, 0.12);
+  border-left: 3px solid var(--accent-color);
+  padding: 6px 12px;
+  border-radius: 4px 8px 8px 4px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.quoted-sender {
+  font-weight: 700;
+  color: var(--accent-color);
+  display: block;
+  margin-bottom: 2px;
+}
+
+.quoted-text {
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+/* Deleted Message Bubble */
+.message-deleted-bubble {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-style: italic;
+  color: var(--text-secondary);
+  font-size: 13px;
+  background-color: rgba(255, 255, 255, 0.04);
+  border: 1px dashed var(--border-color);
+  padding: 8px 14px;
+  border-radius: 12px;
+}
+
+/* Delete Dropdown Menu */
+.delete-menu-wrapper {
+  position: relative;
+}
+
+.delete-dropdown-menu {
+  position: absolute;
+  top: 30px;
+  right: 0;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+}
+
+.delete-option-btn {
+  background: transparent;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
+  width: 100%;
+}
+
+.delete-option-btn:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.delete-option-btn.danger-option {
+  color: #ef4444;
+}
+
+.delete-option-btn.danger-option:hover {
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+/* Reply Preview Bar above Input Box */
+.reply-preview-bar {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-bottom: none;
+  border-radius: 12px 12px 0 0;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: -1px;
+}
+
+.reply-preview-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reply-preview-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-color);
+}
+
+.reply-preview-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 400px;
+}
+
+.reply-close-btn {
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+}
+
+.reply-close-btn:hover {
+  color: var(--text-primary);
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Forward Modal */
+.forward-modal {
+  max-width: 460px;
+}
+
+.forward-preview-box {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin: 14px 20px 0;
+}
+
+.forward-preview-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  display: block;
+}
+
+.forward-preview-text {
+  font-size: 13px;
+  color: var(--text-primary);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+.forward-targets-list {
+  padding: 14px 20px;
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.forward-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.forward-target-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.forward-target-item:hover {
+  background-color: rgba(99, 102, 241, 0.1);
+}
+
+.forward-target-item.active {
+  background-color: rgba(99, 102, 241, 0.2);
+  border-color: var(--accent-color);
+}
+
+.target-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.group-badge {
+  background: var(--accent-color);
+  color: white;
+}
+
+.user-badge {
+  background: #a855f7;
+  color: white;
+}
+
+.target-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.forward-empty-text {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 8px;
+}
+

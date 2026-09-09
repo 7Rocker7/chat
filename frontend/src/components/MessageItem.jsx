@@ -1,9 +1,25 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { format } from 'date-fns';
-import { FileText, Download, Play, Music, Mic, Film, FileArchive, FileCode } from 'lucide-react';
+import { FileText, Download, Music, Mic, Film, FileArchive, FileCode, CornerUpLeft, Share2, Trash2, Ban } from 'lucide-react';
 
-export default function MessageItem({ message, currentUser }) {
-  const isSelf = message.user_id === currentUser?.id;
+export default function MessageItem({ message, currentUser, onReply, onForward, onDelete }) {
+  const [showDeleteMenu, setShowDeleteMenu] = useState(false);
+
+  const isSelf = message.user_id === currentUser?.id || message.sender_id === currentUser?.id;
+
+  // Check if current user deleted this message for themselves
+  let deletedUsers = [];
+  try {
+    deletedUsers = typeof message.deleted_by_users === 'string'
+      ? JSON.parse(message.deleted_by_users || '[]')
+      : message.deleted_by_users || [];
+  } catch (e) {
+    deletedUsers = [];
+  }
+
+  if (deletedUsers.includes(currentUser?.id)) {
+    return null; // Hidden for current user
+  }
 
   const getInitials = (name) => (name ? name.charAt(0).toUpperCase() : '?');
 
@@ -25,6 +41,15 @@ export default function MessageItem({ message, currentUser }) {
   };
 
   const renderMediaContent = () => {
+    if (message.is_deleted_everyone === 1) {
+      return (
+        <div className="message-deleted-bubble">
+          <Ban size={15} />
+          <span>This message was deleted</span>
+        </div>
+      );
+    }
+
     switch (message.type) {
       case 'image':
         return (
@@ -133,7 +158,69 @@ export default function MessageItem({ message, currentUser }) {
             {message.timestamp ? format(new Date(message.timestamp), 'p') : ''}
           </span>
         </div>
+
+        {/* Quoted Reply Context Bar */}
+        {message.reply_to_text && message.is_deleted_everyone !== 1 && (
+          <div className="message-quoted-reply">
+            <span className="quoted-sender">@{message.reply_to_sender || 'User'}</span>
+            <p className="quoted-text">{message.reply_to_text}</p>
+          </div>
+        )}
+
         {renderMediaContent()}
+
+        {/* Hover Action Toolbar */}
+        {message.is_deleted_everyone !== 1 && (
+          <div className="message-action-toolbar">
+            <button
+              className="action-tool-btn"
+              title="Reply"
+              onClick={() => onReply && onReply(message)}
+            >
+              <CornerUpLeft size={14} />
+            </button>
+            <button
+              className="action-tool-btn"
+              title="Forward"
+              onClick={() => onForward && onForward(message)}
+            >
+              <Share2 size={14} />
+            </button>
+            <div className="delete-menu-wrapper">
+              <button
+                className="action-tool-btn danger-tool"
+                title="Delete"
+                onClick={() => setShowDeleteMenu(!showDeleteMenu)}
+              >
+                <Trash2 size={14} />
+              </button>
+              {showDeleteMenu && (
+                <div className="delete-dropdown-menu">
+                  <button
+                    className="delete-option-btn"
+                    onClick={() => {
+                      setShowDeleteMenu(false);
+                      onDelete && onDelete(message, 'me');
+                    }}
+                  >
+                    Delete for Me
+                  </button>
+                  {isSelf && (
+                    <button
+                      className="delete-option-btn danger-option"
+                      onClick={() => {
+                        setShowDeleteMenu(false);
+                        onDelete && onDelete(message, 'everyone');
+                      }}
+                    >
+                      Delete for Everyone
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
