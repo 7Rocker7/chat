@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Database (Keep user data private and out of GitHub)
+*.db
+backend/chat.db
+
+# User Uploaded Media (Audio, Video, Files)
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Build Outputs
+dist/
+frontend/dist/
+
+# Environment Variables & Secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
