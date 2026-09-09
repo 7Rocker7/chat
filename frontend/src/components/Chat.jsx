@@ -295,8 +295,8 @@ export default function Chat({ token, user, onLogout }) {
               <Radio size={18} color="#fff" />
             </div>
             <div>
-              <h2>OmniSphere</h2>
-              <span className="brand-badge">Universal Media</span>
+              <h2>Chat</h2>
+              <span className="brand-badge">Real-Time Media</span>
             </div>
           </div>
         </div>

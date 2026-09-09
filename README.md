@@ -1,6 +1,6 @@
-# 🌌 OmniSphere — The Universal Media & Real-Time Chat Sphere
+# 💬 Chat — Real-Time Multimedia Chat Application
 
-OmniSphere is a modern, real-time messaging and multimedia communication platform modeled with a cosmic dark-mode aesthetic. It supports seamless text messaging, file attachments of any format, animated GIFs, music playback, live voice notes, and live webcam video recording.
+A modern, real-time messaging and multimedia communication platform modeled with a dark-mode aesthetic. It supports seamless text messaging, file attachments of any format, animated GIFs, music playback, live voice notes, and live webcam video recording.
 
 ---
 
@@ -13,8 +13,9 @@ OmniSphere is a modern, real-time messaging and multimedia communication platfor
 - 📹 **Live Video Clips**: Webcam video recording studio with preview and inline HTML5 video player.
 - ✨ **Interactive GIF Hub**: Searchable GIF library with trending categories and reactions.
 - 🔐 **Account Management**: Quick registration, login, password changes, and account deletion.
+- 🔤 **Clean Usernames**: Letters-only usernames (A-Z, a-z) with strict case-insensitive uniqueness.
 - 🛠️ **Admin Tools**: Command-line utilities to list users, seed accounts, and reset forgotten passwords.
-- 🎨 **Cosmic Aesthetic**: Sleek dark theme with neon glassmorphism, responsive layout, and smooth animations.
+- 🎨 **Modern Aesthetic**: Sleek dark theme with glassmorphism, responsive layout, and smooth animations.
 
 ---
 
@@ -30,8 +31,8 @@ Clone this repository and install dependencies for both the backend and frontend
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/omnisphere.git
-cd omnisphere
+git clone https://github.com/YOUR_USERNAME/chat.git
+cd chat
 
 # Install backend dependencies
 cd backend
@@ -66,7 +67,7 @@ Now open [http://localhost:5173](http://localhost:5173) in your browser!
 
 ## 🛠️ Admin CLI Tools
 
-OmniSphere includes administrative scripts inside the `backend/` directory:
+Included administrative scripts inside the `backend/` directory:
 
 - **List All Users:**
   ```bash

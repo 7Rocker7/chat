@@ -61,8 +61,8 @@ export default function Login({ setAuthToken, setUser }) {
           <div className="brand-orb">
             <Radio size={28} color="#fff" />
           </div>
-          <h1 className="brand-title">OmniSphere</h1>
-          <p className="brand-tagline">Universal Media & Real-Time Chat Sphere</p>
+          <h1 className="brand-title">Chat</h1>
+          <p className="brand-tagline">Real-Time Messaging & Media</p>
         </div>
 
         <h2 style={{ fontSize: '18px', textAlign: 'center', fontWeight: 600, color: 'var(--text-primary)', marginTop: '8px' }}>
@@ -100,7 +100,7 @@ export default function Login({ setAuthToken, setUser }) {
           </div>
 
           <button type="submit" className="primary-button">
-            {isLogin ? 'Enter OmniSphere' : 'Join OmniSphere'}
+            {isLogin ? 'Enter Chat' : 'Join Chat'}
           </button>
         </form>
 
