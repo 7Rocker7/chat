@@ -15,23 +15,31 @@ import {
   Radio,
   Loader2,
   Square,
-  Check
+  Check,
+  Plus
 } from 'lucide-react';
 import SettingsModal from './SettingsModal';
 import GifModal from './GifModal';
 import VideoRecordModal from './VideoRecordModal';
 import MessageItem from './MessageItem';
+import CreateGroupModal from './CreateGroupModal';
 
 export default function Chat({ token, user, onLogout }) {
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
   const [socket, setSocket] = useState(null);
-  const [activeSpace, setActiveSpace] = useState('General');
+
+  // Groups state
+  const [groups, setGroups] = useState([
+    { id: 1, name: 'General', description: 'Default space for everyone' }
+  ]);
+  const [activeGroup, setActiveGroup] = useState({ id: 1, name: 'General' });
 
   // Modals state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGifModalOpen, setIsGifModalOpen] = useState(false);
   const [isVideoModalOpen, setIsVideoModalOpen] = useState(false);
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
   // File upload state
   const [isUploading, setIsUploading] = useState(false);
@@ -46,35 +54,75 @@ export default function Chat({ token, user, onLogout }) {
   const voiceRecorderRef = useRef(null);
   const voiceStreamRef = useRef(null);
   const voiceTimerRef = useRef(null);
+  const activeGroupIdRef = useRef(activeGroup.id);
   const navigate = useNavigate();
 
+  // Keep ref synced
+  useEffect(() => {
+    activeGroupIdRef.current = activeGroup.id;
+  }, [activeGroup]);
+
+  // Fetch groups and messages for active group
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
     }
 
-    // Fetch message history
-    fetch('/api/messages')
+    // Fetch all groups
+    fetch('/api/groups')
       .then(res => res.json())
-      .then(data => setMessages(data))
-      .catch(err => console.error('Error fetching messages:', err));
+      .then(data => {
+        if (Array.isArray(data) && data.length > 0) {
+          setGroups(data);
+        }
+      })
+      .catch(err => console.error('Error fetching groups:', err));
+  }, [token, navigate]);
 
-    // Connect Socket.IO
+  // Load messages whenever active group changes
+  useEffect(() => {
+    if (!token) return;
+
+    fetch(`/api/messages?groupId=${activeGroup.id}`)
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setMessages(data);
+        }
+      })
+      .catch(err => console.error('Error fetching group messages:', err));
+  }, [activeGroup.id, token]);
+
+  // Connect Socket.IO
+  useEffect(() => {
+    if (!token) return;
+
     const newSocket = io({
       auth: { token }
     });
 
     newSocket.on('connect', () => {
-      console.log('Connected to OmniSphere socket cluster');
+      console.log('Connected to socket cluster');
     });
 
+    // Receive message
     newSocket.on('receive_message', (message) => {
-      setMessages(prev => [...prev, message]);
+      if (Number(message.group_id) === Number(activeGroupIdRef.current)) {
+        setMessages(prev => [...prev, message]);
+      }
+    });
+
+    // Real-time group creation broadcast
+    newSocket.on('group_created', (newGroup) => {
+      setGroups(prev => {
+        if (prev.some(g => g.id === newGroup.id)) return prev;
+        return [...prev, newGroup];
+      });
     });
 
     newSocket.on('connect_error', (err) => {
-      console.error('Socket connection error', err);
+      console.error('Socket error:', err);
       if (err.message === 'Authentication error') {
         onLogout();
       }
@@ -83,13 +131,25 @@ export default function Chat({ token, user, onLogout }) {
     setSocket(newSocket);
 
     return () => newSocket.close();
-  }, [token, navigate, onLogout]);
+  }, [token, onLogout]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isUploading]);
 
-  // Upload file helper (supports any file size & extension)
+  const handleSelectGroup = (group) => {
+    setActiveGroup(group);
+  };
+
+  const handleGroupCreated = (newGroup) => {
+    setGroups(prev => {
+      if (prev.some(g => g.id === newGroup.id)) return prev;
+      return [...prev, newGroup];
+    });
+    setActiveGroup(newGroup);
+  };
+
+  // Upload file helper
   const uploadFileToBackend = async (file) => {
     const formData = new FormData();
     formData.append('file', file);
@@ -110,7 +170,7 @@ export default function Chat({ token, user, onLogout }) {
     return await res.json();
   };
 
-  // Determine media category from MIME type & extension
+  // Determine media category
   const getMediaCategory = (mimeType = '', fileName = '') => {
     const ext = fileName.split('.').pop().toLowerCase();
     if (mimeType.startsWith('image/')) return 'image';
@@ -125,6 +185,7 @@ export default function Chat({ token, user, onLogout }) {
     if (!inputText.trim() || !socket) return;
 
     socket.emit('send_message', {
+      group_id: activeGroup.id,
       text: inputText.trim(),
       type: 'text'
     });
@@ -144,6 +205,7 @@ export default function Chat({ token, user, onLogout }) {
       const mediaType = getMediaCategory(uploadData.file_type, uploadData.file_name);
 
       socket.emit('send_message', {
+        group_id: activeGroup.id,
         text: mediaType === 'document' ? '' : file.name,
         type: mediaType,
         file_url: uploadData.file_url,
@@ -165,6 +227,7 @@ export default function Chat({ token, user, onLogout }) {
   const handleSelectGif = (gifUrl, gifTitle) => {
     if (!socket) return;
     socket.emit('send_message', {
+      group_id: activeGroup.id,
       text: gifTitle,
       type: 'gif',
       file_url: gifUrl,
@@ -181,6 +244,7 @@ export default function Chat({ token, user, onLogout }) {
     try {
       const uploadData = await uploadFileToBackend(videoFile);
       socket.emit('send_message', {
+        group_id: activeGroup.id,
         text: 'Video Recording',
         type: 'video',
         file_url: uploadData.file_url,
@@ -222,6 +286,7 @@ export default function Chat({ token, user, onLogout }) {
         try {
           const uploadData = await uploadFileToBackend(audioFile);
           socket.emit('send_message', {
+            group_id: activeGroup.id,
             text: 'Voice Memo',
             type: 'audio',
             file_url: uploadData.file_url,
@@ -302,23 +367,34 @@ export default function Chat({ token, user, onLogout }) {
         </div>
 
         <div className="sidebar-nav">
-          <div className="nav-section-title">Spaces</div>
-          <div
-            className={`nav-item ${activeSpace === 'General' ? 'active' : ''}`}
-            onClick={() => setActiveSpace('General')}
-          >
-            <Hash size={18} className="icon" />
-            <span>#General</span>
-          </div>
-          <div
-            className={`nav-item ${activeSpace === 'Media-Lounge' ? 'active' : ''}`}
-            onClick={() => setActiveSpace('Media-Lounge')}
-          >
-            <Sparkles size={18} className="icon" color="#a855f7" />
-            <span>#Media-Lounge</span>
+          {/* Groups Section Header with + Button */}
+          <div className="nav-section-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Groups & Spaces</span>
+            <button
+              className="add-group-btn"
+              onClick={() => setIsCreateGroupOpen(true)}
+              title="Create New Group"
+            >
+              <Plus size={15} />
+            </button>
           </div>
 
-          <div className="nav-section-title" style={{ marginTop: '20px' }}>Direct Messages</div>
+          {/* Dynamic Groups List */}
+          {groups.map(group => (
+            <div
+              key={group.id}
+              className={`nav-item ${activeGroup?.id === group.id ? 'active' : ''}`}
+              onClick={() => handleSelectGroup(group)}
+              title={group.description || group.name}
+            >
+              <Hash size={18} className="icon" />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                #{group.name}
+              </span>
+            </div>
+          ))}
+
+          <div className="nav-section-title" style={{ marginTop: '24px' }}>Direct Messages</div>
           <div className="nav-item">
             <MessageSquare size={18} className="icon" />
             <span>Friends Hub</span>
@@ -362,20 +438,32 @@ export default function Chat({ token, user, onLogout }) {
         <div className="chat-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <Hash size={20} color="var(--accent-color)" />
-            <span style={{ fontWeight: 700 }}>{activeSpace}</span>
-            <span className="chat-header-desc">Instant real-time sync with files, video, audio & GIFs</span>
+            <span style={{ fontWeight: 700 }}>{activeGroup.name}</span>
+            {activeGroup.description && (
+              <span className="chat-header-desc">{activeGroup.description}</span>
+            )}
           </div>
         </div>
 
         {/* Messages List */}
         <div className="messages-container">
-          {messages.map((msg, index) => (
-            <MessageItem
-              key={msg.id || index}
-              message={msg}
-              currentUser={user}
-            />
-          ))}
+          {messages.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '60px 20px' }}>
+              <Hash size={36} color="var(--accent-color)" style={{ opacity: 0.5, marginBottom: '10px' }} />
+              <h3>Welcome to #{activeGroup.name}!</h3>
+              <p style={{ fontSize: '13px', marginTop: '6px' }}>
+                This is the start of #{activeGroup.name}. Send a message, voice memo, or file to start chatting!
+              </p>
+            </div>
+          ) : (
+            messages.map((msg, index) => (
+              <MessageItem
+                key={msg.id || index}
+                message={msg}
+                currentUser={user}
+              />
+            ))
+          )}
 
           {isUploading && (
             <div className="upload-indicator-card animate-fade-in">
@@ -389,7 +477,6 @@ export default function Chat({ token, user, onLogout }) {
 
         {/* Chat Input Bar */}
         <div className="chat-input-container">
-          {/* Hidden File Input for any file type / any size */}
           <input
             type="file"
             ref={fileInputRef}
@@ -399,19 +486,16 @@ export default function Chat({ token, user, onLogout }) {
 
           {!isRecordingVoice ? (
             <form className="chat-input-wrapper" onSubmit={handleSendMessage}>
-              {/* Media Action Buttons */}
               <div className="media-action-buttons">
-                {/* File Attachment Button */}
                 <button
                   type="button"
                   className="media-tool-btn"
                   onClick={() => fileInputRef.current?.click()}
-                  title="Attach file, document, or music (Any size & format)"
+                  title="Attach file, document, or music"
                 >
                   <Paperclip size={19} />
                 </button>
 
-                {/* GIF Picker Button */}
                 <button
                   type="button"
                   className="media-tool-btn"
@@ -421,7 +505,6 @@ export default function Chat({ token, user, onLogout }) {
                   <Sparkles size={19} color="#a855f7" />
                 </button>
 
-                {/* Video Recorder Button */}
                 <button
                   type="button"
                   className="media-tool-btn"
@@ -431,7 +514,6 @@ export default function Chat({ token, user, onLogout }) {
                   <Video size={19} color="#6366f1" />
                 </button>
 
-                {/* Voice Note Button */}
                 <button
                   type="button"
                   className="media-tool-btn"
@@ -442,15 +524,13 @@ export default function Chat({ token, user, onLogout }) {
                 </button>
               </div>
 
-              {/* Text Input */}
               <input
                 type="text"
-                placeholder={`Message #${activeSpace}... (or attach files, record audio & video)`}
+                placeholder={`Message #${activeGroup.name}...`}
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
               />
 
-              {/* Send Button */}
               <button
                 type="submit"
                 className="send-button"
@@ -461,7 +541,6 @@ export default function Chat({ token, user, onLogout }) {
               </button>
             </form>
           ) : (
-            /* Live Voice Recording Bar */
             <div className="voice-recording-bar animate-fade-in">
               <div className="voice-rec-left">
                 <div className="record-red-dot"></div>
@@ -509,6 +588,14 @@ export default function Chat({ token, user, onLogout }) {
         token={token}
         user={user}
         onAccountDeleted={onLogout}
+      />
+
+      {/* Create Group Modal */}
+      <CreateGroupModal
+        isOpen={isCreateGroupOpen}
+        onClose={() => setIsCreateGroupOpen(false)}
+        token={token}
+        onGroupCreated={handleGroupCreated}
       />
 
       {/* GIF Picker Modal */}

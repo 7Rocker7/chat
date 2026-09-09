@@ -187,15 +187,65 @@ app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => 
     });
 });
 
-// Retrieve Messages (including rich media)
-app.get('/api/messages', (req, res) => {
+// Groups / Spaces Routes
+app.get('/api/groups', (req, res) => {
     db.all(`
-        SELECT m.id, m.text, m.type, m.file_url, m.file_name, m.file_size, m.file_type, m.timestamp, u.name as user_name, u.id as user_id
+        SELECT g.*, COUNT(m.id) as message_count
+        FROM groups g
+        LEFT JOIN messages m ON m.group_id = g.id
+        GROUP BY g.id
+        ORDER BY g.id ASC
+    `, [], (err, rows) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json(rows);
+    });
+});
+
+app.post('/api/groups', authenticateToken, (req, res) => {
+    let { name, description = '' } = req.body;
+    if (!name || !name.trim()) {
+        return res.status(400).json({ error: 'Group name is required' });
+    }
+
+    name = name.trim().replace(/\s+/g, '-');
+    if (name.length < 2 || name.length > 30) {
+        return res.status(400).json({ error: 'Group name must be between 2 and 30 characters' });
+    }
+
+    db.get('SELECT id FROM groups WHERE LOWER(name) = LOWER(?)', [name], (err, existing) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        if (existing) {
+            return res.status(400).json({ error: `A group named "${name}" already exists` });
+        }
+
+        db.run('INSERT INTO groups (name, description, created_by) VALUES (?, ?, ?)', [name, description, req.user.id], function(insErr) {
+            if (insErr) return res.status(500).json({ error: 'Failed to create group' });
+
+            const newGroup = {
+                id: this.lastID,
+                name,
+                description,
+                created_by: req.user.id,
+                message_count: 0
+            };
+
+            io.emit('group_created', newGroup);
+            res.json(newGroup);
+        });
+    });
+});
+
+// Retrieve Messages (filtered by group)
+app.get('/api/messages', (req, res) => {
+    const groupId = req.query.groupId || 1;
+    db.all(`
+        SELECT m.id, m.group_id, m.text, m.type, m.file_url, m.file_name, m.file_size, m.file_type, m.timestamp, u.name as user_name, u.id as user_id
         FROM messages m
         JOIN users u ON m.user_id = u.id
+        WHERE m.group_id = ?
         ORDER BY m.timestamp ASC
         LIMIT 500
-    `, [], (err, rows) => {
+    `, [groupId], (err, rows) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         res.json(rows);
     });
@@ -219,6 +269,7 @@ io.on('connection', (socket) => {
 
     socket.on('send_message', (data) => {
         const {
+            group_id = 1,
             text = '',
             type = 'text',
             file_url = null,
@@ -228,9 +279,9 @@ io.on('connection', (socket) => {
         } = data;
 
         db.run(`
-            INSERT INTO messages (user_id, text, type, file_url, file_name, file_size, file_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        `, [socket.user.id, text, type, file_url, file_name, file_size, file_type], function(err) {
+            INSERT INTO messages (user_id, group_id, text, type, file_url, file_name, file_size, file_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `, [socket.user.id, group_id, text, type, file_url, file_name, file_size, file_type], function(err) {
             if (err) {
                 console.error('Error saving message', err);
                 return;
@@ -238,14 +289,15 @@ io.on('connection', (socket) => {
             
             const messageObj = {
                 id: this.lastID,
+                user_id: socket.user.id,
+                user_name: socket.user.name,
+                group_id: Number(group_id),
                 text,
                 type,
                 file_url,
                 file_name,
                 file_size,
                 file_type,
-                user_id: socket.user.id,
-                user_name: socket.user.name,
                 timestamp: new Date().toISOString()
             };
             
@@ -262,10 +314,11 @@ io.on('connection', (socket) => {
 const frontendDist = path.join(__dirname, '../frontend/dist');
 if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
-    app.get('*', (req, res) => {
-        if (!req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
-            res.sendFile(path.join(frontendDist, 'index.html'));
+    app.use((req, res, next) => {
+        if (req.method === 'GET' && !req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+            return res.sendFile(path.join(frontendDist, 'index.html'));
         }
+        next();
     });
 }
 
