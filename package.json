@@ -2,9 +2,6 @@
   "name": "chat",
   "version": "1.0.0",
   "description": "Real-time multimedia chat application",
-  "engines": {
-    "node": ">=18.0.0"
-  },
   "scripts": {
     "build": "cd frontend && npm install && npm run build && cd ../backend && npm install",
     "start": "cd backend && node server.js"
