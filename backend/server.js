@@ -62,32 +62,52 @@ const authenticateToken = (req, res, next) => {
 
 // Auth Routes
 app.post('/api/register', async (req, res) => {
-    const { name, password } = req.body;
+    let { name, password } = req.body;
     if (!name || !password) return res.status(400).json({ error: 'Name and password required' });
 
-    try {
-        const hashedPassword = await bcrypt.hash(password, 10);
-        db.run('INSERT INTO users (name, password) VALUES (?, ?)', [name, hashedPassword], function(err) {
-            if (err) {
-                if (err.message.includes('UNIQUE constraint failed')) {
-                    return res.status(400).json({ error: 'Username already exists' });
-                }
-                return res.status(500).json({ error: 'Database error' });
-            }
-            
-            const token = jwt.sign({ id: this.lastID, name }, JWT_SECRET);
-            res.json({ token, user: { id: this.lastID, name } });
-        });
-    } catch (err) {
-        res.status(500).json({ error: 'Server error' });
+    name = name.trim();
+
+    // Validation: Only uppercase and lowercase letters allowed
+    const nameRegex = /^[A-Za-z]+$/;
+    if (!nameRegex.test(name)) {
+        return res.status(400).json({ error: 'Name can only contain letters (A-Z, a-z). No numbers or special characters allowed.' });
     }
+
+    if (name.length < 2 || name.length > 25) {
+        return res.status(400).json({ error: 'Name must be between 2 and 25 characters.' });
+    }
+
+    // Case-insensitive check: no duplicate names regardless of upper/lower case
+    db.get('SELECT id FROM users WHERE LOWER(name) = LOWER(?)', [name], async (err, existing) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        if (existing) {
+            return res.status(400).json({ error: `An account named "${name}" already exists (names are case-insensitive).` });
+        }
+
+        try {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            db.run('INSERT INTO users (name, password) VALUES (?, ?)', [name, hashedPassword], function(insertErr) {
+                if (insertErr) {
+                    return res.status(500).json({ error: 'Database error creating user' });
+                }
+                
+                const token = jwt.sign({ id: this.lastID, name }, JWT_SECRET);
+                res.json({ token, user: { id: this.lastID, name } });
+            });
+        } catch (hashErr) {
+            res.status(500).json({ error: 'Server error' });
+        }
+    });
 });
 
 app.post('/api/login', (req, res) => {
-    const { name, password } = req.body;
+    let { name, password } = req.body;
     if (!name || !password) return res.status(400).json({ error: 'Name and password required' });
 
-    db.get('SELECT * FROM users WHERE name = ?', [name], async (err, user) => {
+    name = name.trim();
+
+    // Case-insensitive lookup
+    db.get('SELECT * FROM users WHERE LOWER(name) = LOWER(?)', [name], async (err, user) => {
         if (err) return res.status(500).json({ error: 'Database error' });
         if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
