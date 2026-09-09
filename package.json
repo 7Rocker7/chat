@@ -8,5 +8,9 @@
   },
   "keywords": ["chat", "realtime", "socket.io", "react"],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "tar": "^7.4.3",
+    "@tootallnate/once": "^2.0.1"
+  }
 }
