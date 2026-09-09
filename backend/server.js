@@ -251,6 +251,34 @@ app.get('/api/messages', (req, res) => {
     });
 });
 
+// Users List Endpoint (for Direct Messages)
+app.get('/api/users', authenticateToken, (req, res) => {
+    db.all('SELECT id, name FROM users WHERE id != ? ORDER BY name ASC', [req.user.id], (err, rows) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json(rows);
+    });
+});
+
+// Private 1-on-1 Direct Messages Route
+app.get('/api/dms', authenticateToken, (req, res) => {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+
+    db.all(`
+        SELECT dm.id, dm.sender_id, dm.receiver_id, dm.text, dm.type, dm.file_url, dm.file_name, dm.file_size, dm.file_type, dm.timestamp,
+               u.name as user_name, u.id as user_id
+        FROM direct_messages dm
+        JOIN users u ON dm.sender_id = u.id
+        WHERE (dm.sender_id = ? AND dm.receiver_id = ?)
+           OR (dm.sender_id = ? AND dm.receiver_id = ?)
+        ORDER BY dm.timestamp ASC
+        LIMIT 500
+    `, [req.user.id, userId, userId, req.user.id], (err, rows) => {
+        if (err) return res.status(500).json({ error: 'Database error' });
+        res.json(rows);
+    });
+});
+
 // Socket.IO
 io.use((socket, next) => {
     const token = socket.handshake.auth.token;
@@ -267,6 +295,10 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
     console.log(`User connected: ${socket.user.name}`);
 
+    // Join personal user room for private DMs
+    socket.join(`user_${socket.user.id}`);
+
+    // Group Message Handler
     socket.on('send_message', (data) => {
         const {
             group_id = 1,
@@ -302,6 +334,49 @@ io.on('connection', (socket) => {
             };
             
             io.emit('receive_message', messageObj);
+        });
+    });
+
+    // Private 1-on-1 Direct Message Handler
+    socket.on('send_dm', (data) => {
+        const {
+            receiver_id,
+            text = '',
+            type = 'text',
+            file_url = null,
+            file_name = null,
+            file_size = null,
+            file_type = null
+        } = data;
+
+        if (!receiver_id) return;
+
+        db.run(`
+            INSERT INTO direct_messages (sender_id, receiver_id, text, type, file_url, file_name, file_size, file_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `, [socket.user.id, receiver_id, text, type, file_url, file_name, file_size, file_type], function(err) {
+            if (err) {
+                console.error('Error saving direct message', err);
+                return;
+            }
+
+            const dmObj = {
+                id: this.lastID,
+                sender_id: socket.user.id,
+                receiver_id: Number(receiver_id),
+                user_id: socket.user.id,
+                user_name: socket.user.name,
+                text,
+                type,
+                file_url,
+                file_name,
+                file_size,
+                file_type,
+                timestamp: new Date().toISOString()
+            };
+
+            // Send to both sender and receiver sockets
+            io.to(`user_${socket.user.id}`).to(`user_${receiver_id}`).emit('receive_dm', dmObj);
         });
     });
 

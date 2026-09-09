@@ -24,7 +24,6 @@ const db = new sqlite3.Database(dbPath, (err) => {
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (created_by) REFERENCES users (id)
         )`, () => {
-            // Seed default General and Media-Lounge groups if empty
             db.get("SELECT COUNT(*) as count FROM groups", [], (gErr, row) => {
                 if (!gErr && row && row.count === 0) {
                     db.run("INSERT INTO groups (name, description) VALUES ('General', 'Default space for everyone')");
@@ -33,7 +32,7 @@ const db = new sqlite3.Database(dbPath, (err) => {
             });
         });
 
-        // Messages Table
+        // Group Messages Table
         db.run(`CREATE TABLE IF NOT EXISTS messages (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -48,7 +47,6 @@ const db = new sqlite3.Database(dbPath, (err) => {
             FOREIGN KEY (user_id) REFERENCES users (id),
             FOREIGN KEY (group_id) REFERENCES groups (id)
         )`, () => {
-            // Attempt migrations for existing databases that might not have new columns
             const newColumns = [
                 "ALTER TABLE messages ADD COLUMN group_id INTEGER DEFAULT 1",
                 "ALTER TABLE messages ADD COLUMN type TEXT DEFAULT 'text'",
@@ -58,11 +56,25 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 "ALTER TABLE messages ADD COLUMN file_type TEXT"
             ];
             newColumns.forEach(query => {
-                db.run(query, (colErr) => {
-                    // Ignore error if column already exists
-                });
+                db.run(query, () => {});
             });
         });
+
+        // Direct Messages Table (Private 1-on-1 Chat)
+        db.run(`CREATE TABLE IF NOT EXISTS direct_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender_id INTEGER NOT NULL,
+            receiver_id INTEGER NOT NULL,
+            text TEXT,
+            type TEXT DEFAULT 'text',
+            file_url TEXT,
+            file_name TEXT,
+            file_size TEXT,
+            file_type TEXT,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (sender_id) REFERENCES users (id),
+            FOREIGN KEY (receiver_id) REFERENCES users (id)
+        )`);
     }
 });
 

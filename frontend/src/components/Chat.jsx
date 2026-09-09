@@ -16,7 +16,11 @@ import {
   Loader2,
   Square,
   Check,
-  Plus
+  Plus,
+  Moon,
+  Sun,
+  Lock,
+  UserCheck
 } from 'lucide-react';
 import SettingsModal from './SettingsModal';
 import GifModal from './GifModal';
@@ -29,11 +33,21 @@ export default function Chat({ token, user, onLogout }) {
   const [inputText, setInputText] = useState('');
   const [socket, setSocket] = useState(null);
 
+  // Theme state (Dark vs Light)
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'dark');
+
+  // Navigation mode: 'group' | 'dm'
+  const [chatMode, setChatMode] = useState('group');
+
   // Groups state
   const [groups, setGroups] = useState([
     { id: 1, name: 'General', description: 'Default space for everyone' }
   ]);
   const [activeGroup, setActiveGroup] = useState({ id: 1, name: 'General' });
+
+  // Registered Friends (Direct Messages) state
+  const [usersList, setUsersList] = useState([]);
+  const [activeDMUser, setActiveDMUser] = useState(null);
 
   // Modals state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -54,22 +68,34 @@ export default function Chat({ token, user, onLogout }) {
   const voiceRecorderRef = useRef(null);
   const voiceStreamRef = useRef(null);
   const voiceTimerRef = useRef(null);
+
+  const chatModeRef = useRef(chatMode);
   const activeGroupIdRef = useRef(activeGroup.id);
+  const activeDMUserIdRef = useRef(activeDMUser?.id);
+
   const navigate = useNavigate();
 
-  // Keep ref synced
+  // Sync theme
   useEffect(() => {
-    activeGroupIdRef.current = activeGroup.id;
-  }, [activeGroup]);
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
-  // Fetch groups and messages for active group
+  // Keep refs synced for socket listeners
+  useEffect(() => {
+    chatModeRef.current = chatMode;
+    activeGroupIdRef.current = activeGroup.id;
+    activeDMUserIdRef.current = activeDMUser?.id;
+  }, [chatMode, activeGroup, activeDMUser]);
+
+  // Fetch groups and registered users on mount
   useEffect(() => {
     if (!token) {
       navigate('/login');
       return;
     }
 
-    // Fetch all groups
+    // Fetch groups
     fetch('/api/groups')
       .then(res => res.json())
       .then(data => {
@@ -78,23 +104,48 @@ export default function Chat({ token, user, onLogout }) {
         }
       })
       .catch(err => console.error('Error fetching groups:', err));
-  }, [token, navigate]);
 
-  // Load messages whenever active group changes
-  useEffect(() => {
-    if (!token) return;
-
-    fetch(`/api/messages?groupId=${activeGroup.id}`)
+    // Fetch registered friends list for DMs
+    fetch('/api/users', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
-          setMessages(data);
+          setUsersList(data);
         }
       })
-      .catch(err => console.error('Error fetching group messages:', err));
-  }, [activeGroup.id, token]);
+      .catch(err => console.error('Error fetching users:', err));
+  }, [token, navigate]);
 
-  // Connect Socket.IO
+  // Fetch messages based on active mode (Group vs DM)
+  useEffect(() => {
+    if (!token) return;
+
+    if (chatMode === 'group') {
+      fetch(`/api/messages?groupId=${activeGroup.id}`)
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setMessages(data);
+          }
+        })
+        .catch(err => console.error('Error fetching group messages:', err));
+    } else if (chatMode === 'dm' && activeDMUser) {
+      fetch(`/api/dms?userId=${activeDMUser.id}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (Array.isArray(data)) {
+            setMessages(data);
+          }
+        })
+        .catch(err => console.error('Error fetching direct messages:', err));
+    }
+  }, [chatMode, activeGroup.id, activeDMUser, token]);
+
+  // Socket.IO connections & listeners
   useEffect(() => {
     if (!token) return;
 
@@ -106,10 +157,21 @@ export default function Chat({ token, user, onLogout }) {
       console.log('Connected to socket cluster');
     });
 
-    // Receive message
+    // Group message broadcast
     newSocket.on('receive_message', (message) => {
-      if (Number(message.group_id) === Number(activeGroupIdRef.current)) {
+      if (chatModeRef.current === 'group' && Number(message.group_id) === Number(activeGroupIdRef.current)) {
         setMessages(prev => [...prev, message]);
+      }
+    });
+
+    // Private 1-on-1 DM broadcast
+    newSocket.on('receive_dm', (dm) => {
+      if (
+        chatModeRef.current === 'dm' &&
+        activeDMUserIdRef.current &&
+        (Number(dm.sender_id) === Number(activeDMUserIdRef.current) || Number(dm.receiver_id) === Number(activeDMUserIdRef.current))
+      ) {
+        setMessages(prev => [...prev, dm]);
       }
     });
 
@@ -137,8 +199,18 @@ export default function Chat({ token, user, onLogout }) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isUploading]);
 
+  const toggleTheme = () => {
+    setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
+  };
+
   const handleSelectGroup = (group) => {
+    setChatMode('group');
     setActiveGroup(group);
+  };
+
+  const handleSelectDMUser = (targetUser) => {
+    setChatMode('dm');
+    setActiveDMUser(targetUser);
   };
 
   const handleGroupCreated = (newGroup) => {
@@ -146,6 +218,7 @@ export default function Chat({ token, user, onLogout }) {
       if (prev.some(g => g.id === newGroup.id)) return prev;
       return [...prev, newGroup];
     });
+    setChatMode('group');
     setActiveGroup(newGroup);
   };
 
@@ -179,23 +252,38 @@ export default function Chat({ token, user, onLogout }) {
     return 'document';
   };
 
-  // Send pure text message
+  // Send message router (Group vs DM)
+  const dispatchMessagePayload = (payload) => {
+    if (!socket) return;
+    if (chatMode === 'group') {
+      socket.emit('send_message', {
+        ...payload,
+        group_id: activeGroup.id
+      });
+    } else if (chatMode === 'dm' && activeDMUser) {
+      socket.emit('send_dm', {
+        ...payload,
+        receiver_id: activeDMUser.id
+      });
+    }
+  };
+
+  // Text message handler
   const handleSendMessage = (e) => {
     e.preventDefault();
-    if (!inputText.trim() || !socket) return;
+    if (!inputText.trim()) return;
 
-    socket.emit('send_message', {
-      group_id: activeGroup.id,
+    dispatchMessagePayload({
       text: inputText.trim(),
       type: 'text'
     });
     setInputText('');
   };
 
-  // Handle generic file selection
+  // File upload handler
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
-    if (!file || !socket) return;
+    if (!file) return;
 
     setIsUploading(true);
     setUploadProgressText(`Uploading ${file.name}...`);
@@ -204,8 +292,7 @@ export default function Chat({ token, user, onLogout }) {
       const uploadData = await uploadFileToBackend(file);
       const mediaType = getMediaCategory(uploadData.file_type, uploadData.file_name);
 
-      socket.emit('send_message', {
-        group_id: activeGroup.id,
+      dispatchMessagePayload({
         text: mediaType === 'document' ? '' : file.name,
         type: mediaType,
         file_url: uploadData.file_url,
@@ -225,9 +312,7 @@ export default function Chat({ token, user, onLogout }) {
 
   // Send GIF
   const handleSelectGif = (gifUrl, gifTitle) => {
-    if (!socket) return;
-    socket.emit('send_message', {
-      group_id: activeGroup.id,
+    dispatchMessagePayload({
       text: gifTitle,
       type: 'gif',
       file_url: gifUrl,
@@ -237,14 +322,12 @@ export default function Chat({ token, user, onLogout }) {
 
   // Send Recorded Video Clip
   const handleSendVideoClip = async (videoFile) => {
-    if (!socket) return;
     setIsUploading(true);
     setUploadProgressText('Uploading video clip...');
 
     try {
       const uploadData = await uploadFileToBackend(videoFile);
-      socket.emit('send_message', {
-        group_id: activeGroup.id,
+      dispatchMessagePayload({
         text: 'Video Recording',
         type: 'video',
         file_url: uploadData.file_url,
@@ -285,8 +368,7 @@ export default function Chat({ token, user, onLogout }) {
 
         try {
           const uploadData = await uploadFileToBackend(audioFile);
-          socket.emit('send_message', {
-            group_id: activeGroup.id,
+          dispatchMessagePayload({
             text: 'Voice Memo',
             type: 'audio',
             file_url: uploadData.file_url,
@@ -313,7 +395,7 @@ export default function Chat({ token, user, onLogout }) {
       }, 1000);
     } catch (err) {
       console.error('Mic access error:', err);
-      alert('Unable to access microphone. Please check your browser permissions.');
+      alert('Unable to access microphone. Please check browser permissions.');
     }
   };
 
@@ -379,11 +461,11 @@ export default function Chat({ token, user, onLogout }) {
             </button>
           </div>
 
-          {/* Dynamic Groups List */}
+          {/* Groups List */}
           {groups.map(group => (
             <div
               key={group.id}
-              className={`nav-item ${activeGroup?.id === group.id ? 'active' : ''}`}
+              className={`nav-item ${chatMode === 'group' && activeGroup?.id === group.id ? 'active' : ''}`}
               onClick={() => handleSelectGroup(group)}
               title={group.description || group.name}
             >
@@ -394,14 +476,32 @@ export default function Chat({ token, user, onLogout }) {
             </div>
           ))}
 
-          <div className="nav-section-title" style={{ marginTop: '24px' }}>Direct Messages</div>
-          <div className="nav-item">
-            <MessageSquare size={18} className="icon" />
-            <span>Friends Hub</span>
-          </div>
+          {/* Direct Messages (Private 1-on-1 Chat) */}
+          <div className="nav-section-title" style={{ marginTop: '24px' }}>Private Direct Messages</div>
+          {usersList.length === 0 ? (
+            <div style={{ padding: '8px 10px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+              No other registered friends yet. Have your friends register an account!
+            </div>
+          ) : (
+            usersList.map(friend => (
+              <div
+                key={friend.id}
+                className={`nav-item ${chatMode === 'dm' && activeDMUser?.id === friend.id ? 'active' : ''}`}
+                onClick={() => handleSelectDMUser(friend)}
+              >
+                <div className="avatar-sm" style={{ width: '22px', height: '22px', fontSize: '11px' }}>
+                  {getInitials(friend.name)}
+                </div>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {friend.name}
+                </span>
+                <span className="user-status-dot" style={{ marginLeft: 'auto' }}></span>
+              </div>
+            ))
+          )}
         </div>
 
-        {/* Sidebar Footer with Profile & Settings */}
+        {/* Sidebar Footer with Profile & Theme Switcher */}
         <div className="sidebar-footer">
           <div className="user-profile-info">
             <div className="avatar-sm">
@@ -415,6 +515,16 @@ export default function Chat({ token, user, onLogout }) {
             </div>
           </div>
           <div className="user-actions">
+            {/* Dark/Light Theme Toggle */}
+            <button
+              className="icon-btn"
+              onClick={toggleTheme}
+              title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
+            >
+              {theme === 'dark' ? <Sun size={18} color="#eab308" /> : <Moon size={18} color="#6366f1" />}
+            </button>
+
+            {/* Account Settings */}
             <button
               className="icon-btn"
               onClick={() => setIsSettingsOpen(true)}
@@ -422,6 +532,8 @@ export default function Chat({ token, user, onLogout }) {
             >
               <Settings size={18} />
             </button>
+
+            {/* Logout */}
             <button
               className="icon-btn"
               onClick={onLogout}
@@ -437,10 +549,20 @@ export default function Chat({ token, user, onLogout }) {
       <div className="chat-area">
         <div className="chat-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <Hash size={20} color="var(--accent-color)" />
-            <span style={{ fontWeight: 700 }}>{activeGroup.name}</span>
-            {activeGroup.description && (
-              <span className="chat-header-desc">{activeGroup.description}</span>
+            {chatMode === 'group' ? (
+              <>
+                <Hash size={20} color="var(--accent-color)" />
+                <span style={{ fontWeight: 700 }}>{activeGroup.name}</span>
+                {activeGroup.description && (
+                  <span className="chat-header-desc">{activeGroup.description}</span>
+                )}
+              </>
+            ) : (
+              <>
+                <Lock size={18} color="#22c55e" />
+                <span style={{ fontWeight: 700 }}>Direct Message with {activeDMUser?.name}</span>
+                <span className="chat-header-desc">Private 1-on-1 end-to-end conversation</span>
+              </>
             )}
           </div>
         </div>
@@ -449,11 +571,23 @@ export default function Chat({ token, user, onLogout }) {
         <div className="messages-container">
           {messages.length === 0 ? (
             <div style={{ textAlign: 'center', color: 'var(--text-secondary)', padding: '60px 20px' }}>
-              <Hash size={36} color="var(--accent-color)" style={{ opacity: 0.5, marginBottom: '10px' }} />
-              <h3>Welcome to #{activeGroup.name}!</h3>
-              <p style={{ fontSize: '13px', marginTop: '6px' }}>
-                This is the start of #{activeGroup.name}. Send a message, voice memo, or file to start chatting!
-              </p>
+              {chatMode === 'group' ? (
+                <>
+                  <Hash size={36} color="var(--accent-color)" style={{ opacity: 0.5, marginBottom: '10px' }} />
+                  <h3>Welcome to #{activeGroup.name}!</h3>
+                  <p style={{ fontSize: '13px', marginTop: '6px' }}>
+                    Send a message, voice memo, or file to start chatting in this group!
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Lock size={36} color="#22c55e" style={{ opacity: 0.5, marginBottom: '10px' }} />
+                  <h3>Private conversation with {activeDMUser?.name}</h3>
+                  <p style={{ fontSize: '13px', marginTop: '6px' }}>
+                    Only you and {activeDMUser?.name} can see messages sent here.
+                  </p>
+                </>
+              )}
             </div>
           ) : (
             messages.map((msg, index) => (
@@ -526,7 +660,11 @@ export default function Chat({ token, user, onLogout }) {
 
               <input
                 type="text"
-                placeholder={`Message #${activeGroup.name}...`}
+                placeholder={
+                  chatMode === 'group'
+                    ? `Message #${activeGroup.name}...`
+                    : `Send private message to @${activeDMUser?.name}...`
+                }
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
               />
