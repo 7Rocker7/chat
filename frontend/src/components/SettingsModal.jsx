@@ -31,7 +31,7 @@ export default function SettingsModal({ isOpen, onClose, token, user, onAccountD
 
     setIsChangingPass(true);
     try {
-      const res = await fetch('http://localhost:3001/api/change-password', {
+      const res = await fetch('/api/change-password', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -67,7 +67,7 @@ export default function SettingsModal({ isOpen, onClose, token, user, onAccountD
 
     setIsDeleting(true);
     try {
-      const res = await fetch('http://localhost:3001/api/delete-account', {
+      const res = await fetch('/api/delete-account', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

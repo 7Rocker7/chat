@@ -178,7 +178,7 @@ app.post('/api/upload', authenticateToken, upload.single('file'), (req, res) => 
         return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const fileUrl = `http://localhost:3001/uploads/${req.file.filename}`;
+    const fileUrl = `/uploads/${req.file.filename}`;
     res.json({
         file_url: fileUrl,
         file_name: req.file.originalname,

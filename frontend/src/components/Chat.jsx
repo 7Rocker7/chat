@@ -55,13 +55,13 @@ export default function Chat({ token, user, onLogout }) {
     }
 
     // Fetch message history
-    fetch('http://localhost:3001/api/messages')
+    fetch('/api/messages')
       .then(res => res.json())
       .then(data => setMessages(data))
       .catch(err => console.error('Error fetching messages:', err));
 
     // Connect Socket.IO
-    const newSocket = io('http://localhost:3001', {
+    const newSocket = io({
       auth: { token }
     });
 
@@ -94,7 +94,7 @@ export default function Chat({ token, user, onLogout }) {
     const formData = new FormData();
     formData.append('file', file);
 
-    const res = await fetch('http://localhost:3001/api/upload', {
+    const res = await fetch('/api/upload', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`
