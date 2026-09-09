@@ -258,7 +258,18 @@ io.on('connection', (socket) => {
     });
 });
 
-const PORT = 3001;
+// Serve frontend production build when deployed
+const frontendDist = path.join(__dirname, '../frontend/dist');
+if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req, res) => {
+        if (!req.path.startsWith('/api') && !req.path.startsWith('/uploads')) {
+            res.sendFile(path.join(frontendDist, 'index.html'));
+        }
+    });
+}
+
+const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-    console.log(`Backend server running on http://localhost:${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
