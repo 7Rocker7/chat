@@ -349,6 +349,26 @@ button {
   color: var(--text-secondary);
 }
 
+.message-status-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+}
+
+.status-check {
+  transition: all 0.3s ease;
+}
+
+.status-sent {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.status-seen {
+  color: #38bdf8;
+  filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.6));
+}
+
 .message-bubble {
   padding: 12px 16px;
   border-radius: 8px;

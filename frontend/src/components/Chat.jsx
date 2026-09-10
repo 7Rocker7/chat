@@ -145,11 +145,14 @@ export default function Chat({ token, user, onLogout }) {
         .then(data => {
           if (Array.isArray(data)) {
             setMessages(data);
+            if (socket) {
+              socket.emit('mark_dms_read', { sender_id: activeDMUser.id });
+            }
           }
         })
         .catch(err => console.error('Error fetching direct messages:', err));
     }
-  }, [chatMode, activeGroup.id, activeDMUser, token]);
+  }, [chatMode, activeGroup.id, activeDMUser, token, socket]);
 
   // Socket.IO connections & listeners
   useEffect(() => {
@@ -178,6 +181,40 @@ export default function Chat({ token, user, onLogout }) {
         (Number(dm.sender_id) === Number(activeDMUserIdRef.current) || Number(dm.receiver_id) === Number(activeDMUserIdRef.current))
       ) {
         setMessages(prev => [...prev, dm]);
+        if (Number(dm.sender_id) === Number(activeDMUserIdRef.current)) {
+          newSocket.emit('mark_dms_read', { sender_id: activeDMUserIdRef.current });
+        }
+      }
+    });
+
+    // Real-time DM read status update broadcast
+    newSocket.on('dms_read_update', (data) => {
+      if (
+        chatModeRef.current === 'dm' &&
+        activeDMUserIdRef.current &&
+        (Number(data.sender_id) === Number(activeDMUserIdRef.current) || Number(data.receiver_id) === Number(activeDMUserIdRef.current))
+      ) {
+        setMessages(prev => prev.map(m => ({ ...m, is_read: 1 })));
+      }
+    });
+
+    // Real-time Group read status update broadcast
+    newSocket.on('group_read_update', (data) => {
+      if (chatModeRef.current === 'group' && Number(data.group_id) === Number(activeGroupIdRef.current)) {
+        setMessages(prev =>
+          prev.map(m => {
+            let readByList = [];
+            try {
+              readByList = typeof m.read_by === 'string' ? JSON.parse(m.read_by || '[]') : m.read_by || [];
+            } catch (e) {
+              readByList = [];
+            }
+            if (!readByList.includes(data.user_id)) {
+              readByList.push(data.user_id);
+            }
+            return { ...m, read_by: JSON.stringify(readByList) };
+          })
+        );
       }
     });
 
@@ -245,12 +282,18 @@ export default function Chat({ token, user, onLogout }) {
     setChatMode('group');
     setActiveGroup(group);
     setReplyingTo(null);
+    if (socket) {
+      socket.emit('mark_group_read', { group_id: group.id });
+    }
   };
 
   const handleSelectDMUser = (targetUser) => {
     setChatMode('dm');
     setActiveDMUser(targetUser);
     setReplyingTo(null);
+    if (socket) {
+      socket.emit('mark_dms_read', { sender_id: targetUser.id });
+    }
   };
 
   const handleGroupCreated = (newGroup) => {

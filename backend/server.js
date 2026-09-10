@@ -241,7 +241,7 @@ app.get('/api/messages', (req, res) => {
     db.all(`
         SELECT m.id, m.group_id, m.text, m.type, m.file_url, m.file_name, m.file_size, m.file_type,
                m.reply_to_id, m.reply_to_sender, m.reply_to_text, m.is_deleted_everyone, m.deleted_by_users,
-               m.timestamp, u.name as user_name, u.id as user_id
+               m.read_by, m.timestamp, u.name as user_name, u.id as user_id
         FROM messages m
         JOIN users u ON m.user_id = u.id
         WHERE m.group_id = ?
@@ -269,7 +269,7 @@ app.get('/api/dms', authenticateToken, (req, res) => {
     db.all(`
         SELECT dm.id, dm.sender_id, dm.receiver_id, dm.text, dm.type, dm.file_url, dm.file_name, dm.file_size, dm.file_type,
                dm.reply_to_id, dm.reply_to_sender, dm.reply_to_text, dm.is_deleted_everyone, dm.deleted_by_users,
-               dm.timestamp, u.name as user_name, u.id as user_id
+               dm.is_read, dm.read_at, dm.timestamp, u.name as user_name, u.id as user_id
         FROM direct_messages dm
         JOIN users u ON dm.sender_id = u.id
         WHERE (dm.sender_id = ? AND dm.receiver_id = ?)
@@ -316,10 +316,11 @@ io.on('connection', (socket) => {
             reply_to_text = null
         } = data;
 
+        const initialReadBy = JSON.stringify([socket.user.id]);
         db.run(`
-            INSERT INTO messages (user_id, group_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `, [socket.user.id, group_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text], function(err) {
+            INSERT INTO messages (user_id, group_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text, read_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [socket.user.id, group_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text, initialReadBy], function(err) {
             if (err) {
                 console.error('Error saving message', err);
                 return;
@@ -341,6 +342,7 @@ io.on('connection', (socket) => {
                 reply_to_text,
                 is_deleted_everyone: 0,
                 deleted_by_users: '[]',
+                read_by: initialReadBy,
                 timestamp: new Date().toISOString()
             };
             
@@ -366,8 +368,8 @@ io.on('connection', (socket) => {
         if (!receiver_id) return;
 
         db.run(`
-            INSERT INTO direct_messages (sender_id, receiver_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO direct_messages (sender_id, receiver_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text, is_read)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         `, [socket.user.id, receiver_id, text, type, file_url, file_name, file_size, file_type, reply_to_id, reply_to_sender, reply_to_text], function(err) {
             if (err) {
                 console.error('Error saving direct message', err);
@@ -391,11 +393,52 @@ io.on('connection', (socket) => {
                 reply_to_text,
                 is_deleted_everyone: 0,
                 deleted_by_users: '[]',
+                is_read: 0,
+                read_at: null,
                 timestamp: new Date().toISOString()
             };
 
             // Send to both sender and receiver sockets
             io.to(`user_${socket.user.id}`).to(`user_${receiver_id}`).emit('receive_dm', dmObj);
+        });
+    });
+
+    // Mark Direct Messages as Read Handler
+    socket.on('mark_dms_read', (data) => {
+        const { sender_id } = data;
+        if (!sender_id) return;
+
+        db.run(`
+            UPDATE direct_messages
+            SET is_read = 1, read_at = CURRENT_TIMESTAMP
+            WHERE sender_id = ? AND receiver_id = ? AND is_read = 0
+        `, [sender_id, socket.user.id], function(err) {
+            if (err) return;
+            if (this.changes > 0) {
+                const eventPayload = { sender_id, receiver_id: socket.user.id };
+                io.to(`user_${sender_id}`).to(`user_${socket.user.id}`).emit('dms_read_update', eventPayload);
+            }
+        });
+    });
+
+    // Mark Group Messages as Read Handler
+    socket.on('mark_group_read', (data) => {
+        const { group_id = 1 } = data;
+        db.all(`SELECT id, read_by FROM messages WHERE group_id = ? AND is_deleted_everyone = 0`, [group_id], (err, rows) => {
+            if (err || !rows) return;
+            let updatedAny = false;
+            rows.forEach(row => {
+                let readByList = [];
+                try { readByList = JSON.parse(row.read_by || '[]'); } catch(e) { readByList = []; }
+                if (!readByList.includes(socket.user.id)) {
+                    readByList.push(socket.user.id);
+                    updatedAny = true;
+                    db.run(`UPDATE messages SET read_by = ? WHERE id = ?`, [JSON.stringify(readByList), row.id]);
+                }
+            });
+            if (updatedAny) {
+                io.emit('group_read_update', { group_id, user_id: socket.user.id });
+            }
         });
     });
 

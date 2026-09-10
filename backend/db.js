@@ -63,7 +63,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 "ALTER TABLE messages ADD COLUMN reply_to_sender TEXT",
                 "ALTER TABLE messages ADD COLUMN reply_to_text TEXT",
                 "ALTER TABLE messages ADD COLUMN is_deleted_everyone INTEGER DEFAULT 0",
-                "ALTER TABLE messages ADD COLUMN deleted_by_users TEXT DEFAULT '[]'"
+                "ALTER TABLE messages ADD COLUMN deleted_by_users TEXT DEFAULT '[]'",
+                "ALTER TABLE messages ADD COLUMN read_by TEXT DEFAULT '[]'"
             ];
             newColumns.forEach(query => {
                 db.run(query, () => {});
@@ -86,6 +87,8 @@ const db = new sqlite3.Database(dbPath, (err) => {
             reply_to_text TEXT,
             is_deleted_everyone INTEGER DEFAULT 0,
             deleted_by_users TEXT DEFAULT '[]',
+            is_read INTEGER DEFAULT 0,
+            read_at DATETIME,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (sender_id) REFERENCES users (id),
             FOREIGN KEY (receiver_id) REFERENCES users (id)
@@ -95,7 +98,9 @@ const db = new sqlite3.Database(dbPath, (err) => {
                 "ALTER TABLE direct_messages ADD COLUMN reply_to_sender TEXT",
                 "ALTER TABLE direct_messages ADD COLUMN reply_to_text TEXT",
                 "ALTER TABLE direct_messages ADD COLUMN is_deleted_everyone INTEGER DEFAULT 0",
-                "ALTER TABLE direct_messages ADD COLUMN deleted_by_users TEXT DEFAULT '[]'"
+                "ALTER TABLE direct_messages ADD COLUMN deleted_by_users TEXT DEFAULT '[]'",
+                "ALTER TABLE direct_messages ADD COLUMN is_read INTEGER DEFAULT 0",
+                "ALTER TABLE direct_messages ADD COLUMN read_at DATETIME"
             ];
             dmColumns.forEach(query => {
                 db.run(query, () => {});

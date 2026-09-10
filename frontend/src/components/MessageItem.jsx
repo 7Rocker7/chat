@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { format } from 'date-fns';
-import { FileText, Download, Music, Mic, Film, FileArchive, FileCode, CornerUpLeft, Share2, Trash2, Ban } from 'lucide-react';
+import { FileText, Download, Music, Mic, Film, FileArchive, FileCode, CornerUpLeft, Share2, Trash2, Ban, Check, CheckCheck } from 'lucide-react';
 
 export default function MessageItem({ message, currentUser, onReply, onForward, onDelete }) {
   const [showDeleteMenu, setShowDeleteMenu] = useState(false);
@@ -19,6 +19,23 @@ export default function MessageItem({ message, currentUser, onReply, onForward, 
 
   if (deletedUsers.includes(currentUser?.id)) {
     return null; // Hidden for current user
+  }
+
+  // Check read receipt status
+  let isRead = false;
+  if (message.receiver_id) {
+    // 1-on-1 Direct Message
+    isRead = message.is_read === 1;
+  } else {
+    // Group Message
+    try {
+      const readByList = typeof message.read_by === 'string'
+        ? JSON.parse(message.read_by || '[]')
+        : message.read_by || [];
+      isRead = readByList.some(id => id !== currentUser?.id);
+    } catch (e) {
+      isRead = false;
+    }
   }
 
   const getInitials = (name) => (name ? name.charAt(0).toUpperCase() : '?');
@@ -157,6 +174,15 @@ export default function MessageItem({ message, currentUser, onReply, onForward, 
           <span className="message-time">
             {message.timestamp ? format(new Date(message.timestamp), 'p') : ''}
           </span>
+          {isSelf && message.is_deleted_everyone !== 1 && (
+            <span className="message-status-icon" title={isRead ? 'Seen' : 'Sent'}>
+              {isRead ? (
+                <CheckCheck size={14} className="status-check status-seen" />
+              ) : (
+                <Check size={14} className="status-check status-sent" />
+              )}
+            </span>
+          )}
         </div>
 
         {/* Quoted Reply Context Bar */}
